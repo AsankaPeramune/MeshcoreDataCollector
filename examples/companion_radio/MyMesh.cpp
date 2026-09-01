@@ -4,22 +4,22 @@
 #include <Mesh.h>
 
 // ============================================================
-// AUTOMATIC HELLO SCAN / MESHCORE-STYLE RETRY STATE
+// AUTOMATIC DATAREQUEST SCAN / MESHCORE-STYLE RETRY STATE
 // ============================================================
-// All automatic HELLO state is kept here, consistently, rather than partly
+// All automatic DATAREQUEST state is kept here, consistently, rather than partly
 // in MyMesh.h and partly in this file. This prevents stale/mismatched state.
-static uint32_t hello_next_send_after = 0;
-static uint32_t hello_app_response_timeout = 0;
-static uint8_t  hello_attempt = 0;
-static uint32_t hello_expected_ack = 0;
-static uint32_t hello_contact_index = 0;
-static uint32_t hello_scan_wait_until = 0;
-static uint8_t  hello_pending_pub_key[PUB_KEY_SIZE] = {0};
-static bool hello_waiting_for_ack = false;
-static bool hello_waiting_for_app_response = false;
+static uint32_t datarequest_next_send_after = 0;
+static uint32_t datarequest_app_response_timeout = 0;
+static uint8_t  datarequest_attempt = 0;
+static uint32_t datarequest_expected_ack = 0;
+static uint32_t datarequest_contact_index = 0;
+static uint32_t datarequest_scan_wait_until = 0;
+static uint8_t  datarequest_pending_pub_key[PUB_KEY_SIZE] = {0};
+static bool datarequest_waiting_for_ack = false;
+static bool datarequest_waiting_for_app_response = false;
 
-static const uint32_t HELLO_NEXT_CONTACT_DELAY_MS = 1000UL;
-static const uint32_t HELLO_APP_RESPONSE_TIMEOUT_MS = 10000UL;
+static const uint32_t DATAREQUEST_NEXT_CONTACT_DELAY_MS = 1000UL;
+static const uint32_t DATAREQUEST_APP_RESPONSE_TIMEOUT_MS = 10000UL;
 
 // Attempts 0,1,2 use the current stored route. Attempt 3 is made after
 // resetting the stored route, causing sendMessage() to flood.
@@ -443,21 +443,21 @@ ContactInfo *MyMesh::processAck(const uint8_t *data) {
 
       ContactInfo *contact = expected_ack_table[i].contact;
 
-      // This ACK belongs to our automatic HELLO transaction.  The ACK
-      // proves that the HELLO packet reached the destination.  Do NOT
+      // This ACK belongs to our automatic DATAREQUEST transaction.  The ACK
+      // proves that the DATAREQUEST packet reached the destination.  Do NOT
       // advance to the next contact yet: now wait for the application
       // level response.
-      if (hello_waiting_for_ack && contact != NULL &&
-          memcmp(contact->id.pub_key, hello_pending_pub_key, PUB_KEY_SIZE) == 0 &&
-          memcmp(data, &hello_expected_ack, 4) == 0) {
-        hello_waiting_for_ack = false;
-        hello_waiting_for_app_response = true;
-        hello_app_response_timeout = millis() + HELLO_APP_RESPONSE_TIMEOUT_MS;
+      if (datarequest_waiting_for_ack && contact != NULL &&
+          memcmp(contact->id.pub_key, datarequest_pending_pub_key, PUB_KEY_SIZE) == 0 &&
+          memcmp(data, &datarequest_expected_ack, 4) == 0) {
+        datarequest_waiting_for_ack = false;
+        datarequest_waiting_for_app_response = true;
+        datarequest_app_response_timeout = millis() + DATAREQUEST_APP_RESPONSE_TIMEOUT_MS;
 
         Serial.println("================================");
         Serial.print("MESHCORE ACK RECEIVED <- ");
         Serial.println(contact->name);
-        Serial.println("HELLO DELIVERED - WAITING FOR APPLICATION RESPONSE...");
+        Serial.println("DATAREQUEST DELIVERED - WAITING FOR APPLICATION RESPONSE...");
         Serial.println("================================");
       }
 
@@ -570,9 +570,9 @@ void MyMesh::onMessageRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t 
   // Preserve normal MeshCore message handling.
   queueMessage(from, TXT_TYPE_PLAIN, pkt, sender_timestamp, NULL, 0, text);
 
-  // We only inspect the message as a HELLO response while the automatic
+  // We only inspect the message as a DATAREQUEST response while the automatic
   // scanner is waiting for the application-level response.
-  if (!hello_waiting_for_app_response) {
+  if (!datarequest_waiting_for_app_response) {
     return;
   }
 
@@ -582,12 +582,12 @@ void MyMesh::onMessageRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t 
   Serial.println(from.name);
   Serial.print("TEXT: ");
   Serial.println(text ? text : "<NULL>");
-  Serial.print("HELLO CONTACT INDEX: ");
-  Serial.println(hello_contact_index);
+  Serial.print("DATAREQUEST CONTACT INDEX: ");
+  Serial.println(datarequest_contact_index);
   Serial.println("================================");
 
   // Response must come from the exact contact being polled.
-  if (memcmp(from.id.pub_key, hello_pending_pub_key, PUB_KEY_SIZE) != 0) {
+  if (memcmp(from.id.pub_key, datarequest_pending_pub_key, PUB_KEY_SIZE) != 0) {
     Serial.println("MESSAGE FROM OTHER CONTACT - IGNORED");
     return;
   }
@@ -611,42 +611,42 @@ void MyMesh::onMessageRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t 
   Serial.println(received_key);
 
   if (strcasecmp(received_key, expected_key) != 0) {
-    Serial.println("INVALID HELLO RESPONSE KEY - IGNORED");
+    Serial.println("INVALID DATAREQUEST RESPONSE KEY - IGNORED");
     return;
   }
 
   // Application response is valid.
-  hello_waiting_for_app_response = false;
-  hello_app_response_timeout = 0;
-  hello_expected_ack = 0;
-  hello_attempt = 0;
+  datarequest_waiting_for_app_response = false;
+  datarequest_app_response_timeout = 0;
+  datarequest_expected_ack = 0;
+  datarequest_attempt = 0;
 
   Serial.println("--------------------------------");
-  Serial.print("HELLO RESPONSE <- ");
+  Serial.print("DATAREQUEST RESPONSE <- ");
   Serial.print(from.name);
   Serial.print(" : ");
   Serial.println(text);
-  Serial.println("HELLO RESPONSE VALID");
+  Serial.println("DATAREQUEST RESPONSE VALID");
   Serial.println("--------------------------------");
 
-  hello_contact_index++;
+  datarequest_contact_index++;
   int contact_count = getNumContacts();
 
-  if (contact_count > 0 && hello_contact_index >= (uint32_t)contact_count) {
-    hello_contact_index = 0;
-    hello_next_send_after = 0;
-    hello_scan_wait_until = millis() + 30000UL;
+  if (contact_count > 0 && datarequest_contact_index >= (uint32_t)contact_count) {
+    datarequest_contact_index = 0;
+    datarequest_next_send_after = 0;
+    datarequest_scan_wait_until = millis() + 30000UL;
 
     Serial.println("ALL CONTACTS COMPLETED");
     Serial.println("WAITING 30 SECONDS");
     Serial.println("--------------------------------");
   } else {
-    hello_next_send_after = millis() + HELLO_NEXT_CONTACT_DELAY_MS;
+    datarequest_next_send_after = millis() + DATAREQUEST_NEXT_CONTACT_DELAY_MS;
     Serial.print("NEXT CONTACT INDEX = ");
-    Serial.println(hello_contact_index);
+    Serial.println(datarequest_contact_index);
     Serial.print("WAITING ");
-    Serial.print(HELLO_NEXT_CONTACT_DELAY_MS);
-    Serial.println(" ms BEFORE NEXT HELLO");
+    Serial.print(DATAREQUEST_NEXT_CONTACT_DELAY_MS);
+    Serial.println(" ms BEFORE NEXT DATAREQUEST");
   }
 }
 
@@ -980,29 +980,29 @@ uint32_t MyMesh::calcDirectTimeoutMillisFor(uint32_t pkt_airtime_millis, uint8_t
 
 void MyMesh::onSendTimeout() {
   // BaseChatMesh calls this when the ACK timeout created by sendMessage()
-  // expires. Only our automatic HELLO transaction is handled here.
-  if (!hello_waiting_for_ack) {
+  // expires. Only our automatic DATAREQUEST transaction is handled here.
+  if (!datarequest_waiting_for_ack) {
     return;
   }
 
-  hello_waiting_for_ack = false;
+  datarequest_waiting_for_ack = false;
 
   Serial.println("--------------------------------");
   Serial.println("MESHCORE ACK TIMEOUT");
-  Serial.print("HELLO CONTACT INDEX = ");
-  Serial.println(hello_contact_index);
+  Serial.print("DATAREQUEST CONTACT INDEX = ");
+  Serial.println(datarequest_contact_index);
   Serial.print("FAILED ATTEMPT = ");
-  Serial.println(hello_attempt);
+  Serial.println(datarequest_attempt);
 
   // Attempts 0, 1 and 2 use the currently stored routing information.
   // On attempt 3 we deliberately reset the path first, causing
   // sendMessage() to flood.
-  if (hello_attempt < 3) {
-    hello_attempt++;
+  if (datarequest_attempt < 3) {
+    datarequest_attempt++;
 
-    if (hello_attempt == 3) {
+    if (datarequest_attempt == 3) {
       ContactInfo contact;
-      if (getContactByIdx(hello_contact_index, contact)) {
+      if (getContactByIdx(datarequest_contact_index, contact)) {
         Serial.println("DIRECT RETRIES EXHAUSTED");
         Serial.println("RESETTING STORED PATH -> FINAL FLOOD ATTEMPT");
 
@@ -1019,13 +1019,13 @@ void MyMesh::onSendTimeout() {
       }
     } else {
       Serial.print("RETRYING USING CURRENT PATH, ATTEMPT = ");
-      Serial.println(hello_attempt);
+      Serial.println(datarequest_attempt);
     }
 
     // Do not send immediately inside onSendTimeout(). Give the radio/
     // receive path a small gap and let the normal loop invoke the sender.
-    hello_next_send_after = millis() + HELLO_NEXT_CONTACT_DELAY_MS;
-    Serial.println("SCHEDULING HELLO RETRY");
+    datarequest_next_send_after = millis() + DATAREQUEST_NEXT_CONTACT_DELAY_MS;
+    Serial.println("SCHEDULING DATAREQUEST RETRY");
     Serial.println("--------------------------------");
     return;
   }
@@ -1036,20 +1036,20 @@ void MyMesh::onSendTimeout() {
   Serial.println("CONTACT FAILED -> MOVING TO NEXT CONTACT");
   Serial.println("--------------------------------");
 
-  hello_attempt = 0;
-  hello_expected_ack = 0;
-  hello_contact_index++;
+  datarequest_attempt = 0;
+  datarequest_expected_ack = 0;
+  datarequest_contact_index++;
 
   int contact_count = getNumContacts();
-  if (contact_count > 0 && hello_contact_index >= (uint32_t)contact_count) {
-    hello_contact_index = 0;
-    hello_next_send_after = 0;
-    hello_scan_wait_until = millis() + 30000UL;
+  if (contact_count > 0 && datarequest_contact_index >= (uint32_t)contact_count) {
+    datarequest_contact_index = 0;
+    datarequest_next_send_after = 0;
+    datarequest_scan_wait_until = millis() + 30000UL;
 
     Serial.println("ALL CONTACTS COMPLETED");
     Serial.println("WAITING 30 SECONDS");
   } else {
-    hello_next_send_after = millis() + HELLO_NEXT_CONTACT_DELAY_MS;
+    datarequest_next_send_after = millis() + DATAREQUEST_NEXT_CONTACT_DELAY_MS;
   }
 }
 
@@ -1061,16 +1061,16 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   _iter_started = false;
   _cli_rescue = false;
   offline_queue_len = 0;
-  // Automatic HELLO scanner state
-  hello_next_send_after = 0;
-  hello_app_response_timeout = 0;
-  hello_attempt = 0;
-  hello_expected_ack = 0;
-  hello_contact_index = 0;
-  hello_scan_wait_until = 0;
-  memset(hello_pending_pub_key, 0, sizeof(hello_pending_pub_key));
-  hello_waiting_for_ack = false;
-  hello_waiting_for_app_response = false;
+  // Automatic DATAREQUEST scanner state
+  datarequest_next_send_after = 0;
+  datarequest_app_response_timeout = 0;
+  datarequest_attempt = 0;
+  datarequest_expected_ack = 0;
+  datarequest_contact_index = 0;
+  datarequest_scan_wait_until = 0;
+  memset(datarequest_pending_pub_key, 0, sizeof(datarequest_pending_pub_key));
+  datarequest_waiting_for_ack = false;
+  datarequest_waiting_for_app_response = false;
   app_target_ver = 0;
   clearPendingReqs();
   next_ack_idx = 0;
@@ -2454,53 +2454,53 @@ void MyMesh::checkSerialInterface() {
 ////////////////////////////////Added by
 /// Asanka//////////////////////////////////////////////////////////////////
 
-void MyMesh::sendHelloToNextContact() {
-  // Never start another HELLO while a transport ACK or application
+void MyMesh::sendDataRequestToNextContact() {
+  // Never start another DATAREQUEST while a transport ACK or application
   // response for the current contact is pending.
-  if (hello_waiting_for_ack) {
+  if (datarequest_waiting_for_ack) {
     return;
   }
 
-  if (hello_waiting_for_app_response) {
-    if (hello_app_response_timeout != 0 && millisHasNowPassed(hello_app_response_timeout)) {
+  if (datarequest_waiting_for_app_response) {
+    if (datarequest_app_response_timeout != 0 && millisHasNowPassed(datarequest_app_response_timeout)) {
       Serial.println("--------------------------------");
       Serial.println("APPLICATION RESPONSE TIMEOUT");
-      Serial.println("HELLO WAS DELIVERED, BUT NO VALID RESPONSE ARRIVED");
+      Serial.println("DATAREQUEST WAS DELIVERED, BUT NO VALID RESPONSE ARRIVED");
       Serial.print("Contact index = ");
-      Serial.println(hello_contact_index);
+      Serial.println(datarequest_contact_index);
       Serial.println("Moving to next contact");
       Serial.println("--------------------------------");
 
-      hello_waiting_for_app_response = false;
-      hello_app_response_timeout = 0;
-      hello_expected_ack = 0;
-      hello_attempt = 0;
-      hello_contact_index++;
+      datarequest_waiting_for_app_response = false;
+      datarequest_app_response_timeout = 0;
+      datarequest_expected_ack = 0;
+      datarequest_attempt = 0;
+      datarequest_contact_index++;
 
       int contact_count = getNumContacts();
-      if (contact_count > 0 && hello_contact_index >= (uint32_t)contact_count) {
-        hello_contact_index = 0;
-        hello_next_send_after = 0;
-        hello_scan_wait_until = millis() + 30000UL;
+      if (contact_count > 0 && datarequest_contact_index >= (uint32_t)contact_count) {
+        datarequest_contact_index = 0;
+        datarequest_next_send_after = 0;
+        datarequest_scan_wait_until = millis() + 30000UL;
         Serial.println("ALL CONTACTS COMPLETED");
         Serial.println("WAITING 30 SECONDS");
       } else {
-        hello_next_send_after = millis() + HELLO_NEXT_CONTACT_DELAY_MS;
+        datarequest_next_send_after = millis() + DATAREQUEST_NEXT_CONTACT_DELAY_MS;
       }
     }
     return;
   }
 
   // Inter-contact delay.
-  if (hello_next_send_after != 0) {
-    if (!millisHasNowPassed(hello_next_send_after)) return;
-    hello_next_send_after = 0;
+  if (datarequest_next_send_after != 0) {
+    if (!millisHasNowPassed(datarequest_next_send_after)) return;
+    datarequest_next_send_after = 0;
   }
 
   // 30-second delay after completing a complete contact scan.
-  if (hello_scan_wait_until != 0) {
-    if (!millisHasNowPassed(hello_scan_wait_until)) return;
-    hello_scan_wait_until = 0;
+  if (datarequest_scan_wait_until != 0) {
+    if (!millisHasNowPassed(datarequest_scan_wait_until)) return;
+    datarequest_scan_wait_until = 0;
     Serial.println("================================");
     Serial.println("STARTING NEW CONTACT SCAN");
     Serial.println("================================");
@@ -2509,29 +2509,29 @@ void MyMesh::sendHelloToNextContact() {
   int contact_count = getNumContacts();
   if (contact_count <= 0) return;
 
-  if (hello_contact_index >= (uint32_t)contact_count) hello_contact_index = 0;
+  if (datarequest_contact_index >= (uint32_t)contact_count) datarequest_contact_index = 0;
 
   ContactInfo contact;
-  if (!getContactByIdx(hello_contact_index, contact)) {
+  if (!getContactByIdx(datarequest_contact_index, contact)) {
     Serial.print("Cannot get contact index ");
-    Serial.println(hello_contact_index);
+    Serial.println(datarequest_contact_index);
     return;
   }
 
   if (contact.type == ADV_TYPE_NONE) {
-    hello_contact_index++;
+    datarequest_contact_index++;
     return;
   }
 
-  memcpy(hello_pending_pub_key, contact.id.pub_key, PUB_KEY_SIZE);
+  memcpy(datarequest_pending_pub_key, contact.id.pub_key, PUB_KEY_SIZE);
 
   Serial.println("--------------------------------");
-  Serial.print("HELLO -> ");
+  Serial.print("DATAREQUEST -> ");
   Serial.print(contact.name);
   Serial.print("  INDEX=");
-  Serial.print(hello_contact_index);
+  Serial.print(datarequest_contact_index);
   Serial.print("  ATTEMPT=");
-  Serial.println(hello_attempt);
+  Serial.println(datarequest_attempt);
 
   Serial.print("PATH: ");
   if (contact.out_path_len == OUT_PATH_UNKNOWN) {
@@ -2545,7 +2545,7 @@ void MyMesh::sendHelloToNextContact() {
   uint32_t expected_ack = 0;
   uint32_t est_timeout = 0;
 
-  int result = sendMessage(contact, timestamp, hello_attempt, "hello", expected_ack, est_timeout);
+  int result = sendMessage(contact, timestamp, datarequest_attempt, "#DATA#", expected_ack, est_timeout);
 
   Serial.print("sendMessage result = ");
   Serial.println(result);
@@ -2555,20 +2555,20 @@ void MyMesh::sendHelloToNextContact() {
   Serial.println(est_timeout);
 
   if (result == MSG_SEND_FAILED || expected_ack == 0) {
-    Serial.println("HELLO COULD NOT BE QUEUED");
+    Serial.println("DATAREQUEST COULD NOT BE QUEUED");
     // This is a local resource failure, not a remote ACK timeout.
     // Leave the contact selected and retry after a short delay.
-    hello_next_send_after = millis() + HELLO_NEXT_CONTACT_DELAY_MS;
+    datarequest_next_send_after = millis() + DATAREQUEST_NEXT_CONTACT_DELAY_MS;
     return;
   }
 
   // IMPORTANT: sendMessage() creates the packet and timeout, but the
   // companion application's handleCmdFrame() normally registers the ACK.
-  // Our automatic sender must register its own HELLO ACK here.
+  // Our automatic sender must register its own DATAREQUEST ACK here.
   ContactInfo *stored_contact = lookupContactByPubKey(contact.id.pub_key, PUB_KEY_SIZE);
   if (stored_contact == NULL) {
-    Serial.println("ERROR: HELLO CONTACT DISAPPEARED FROM CONTACT TABLE");
-    hello_next_send_after = millis() + HELLO_NEXT_CONTACT_DELAY_MS;
+    Serial.println("ERROR: DATAREQUEST CONTACT DISAPPEARED FROM CONTACT TABLE");
+    datarequest_next_send_after = millis() + DATAREQUEST_NEXT_CONTACT_DELAY_MS;
     return;
   }
 
@@ -2577,15 +2577,15 @@ void MyMesh::sendHelloToNextContact() {
   expected_ack_table[next_ack_idx].contact = stored_contact;
   next_ack_idx = (next_ack_idx + 1) % EXPECTED_ACK_TABLE_SIZE;
 
-  hello_expected_ack = expected_ack;
-  hello_waiting_for_ack = true;
-  hello_waiting_for_app_response = false;
+  datarequest_expected_ack = expected_ack;
+  datarequest_waiting_for_ack = true;
+  datarequest_waiting_for_app_response = false;
 
   if (result == MSG_SEND_SENT_FLOOD) {
-    Serial.print("HELLO SENT FLOOD -> ");
+    Serial.print("DATAREQUEST SENT FLOOD -> ");
     Serial.println(contact.name);
   } else if (result == MSG_SEND_SENT_DIRECT) {
-    Serial.print("HELLO SENT DIRECT -> ");
+    Serial.print("DATAREQUEST SENT DIRECT -> ");
     Serial.println(contact.name);
   }
 
@@ -2600,7 +2600,7 @@ void MyMesh::loop() {
   } else {
     checkSerialInterface();
   }
-  sendHelloToNextContact(); //// Added by Asanka
+  sendDataRequestToNextContact(); //// Added by Asanka
                             // is there are pending dirty contacts write needed?
   if (dirty_contacts_expiry && millisHasNowPassed(dirty_contacts_expiry)) {
     saveContacts();

@@ -209,7 +209,7 @@ private:
   void checkCLIRescueCmd();
   void checkSerialInterface();
   bool isValidClientRepeatFreq(uint32_t f) const;
-  void sendHelloToNextContact(); /// Added by Asanka
+  void sendDataRequestToNextContact(); /// Added by Asanka
 
   // helpers, short-cuts
   void saveChannels() { _store->saveChannels(this); }
