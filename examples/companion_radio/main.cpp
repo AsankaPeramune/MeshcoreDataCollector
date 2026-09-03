@@ -116,6 +116,7 @@ unsigned long last_wifi_reconnect_attempt = 0;
 
 void setup() {
   Serial.begin(115200);
+  Serial1.begin(115200);
 
   board.begin();
 

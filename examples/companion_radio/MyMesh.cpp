@@ -10,11 +10,11 @@
 // in MyMesh.h and partly in this file. This prevents stale/mismatched state.
 static uint32_t datarequest_next_send_after = 0;
 static uint32_t datarequest_app_response_timeout = 0;
-static uint8_t  datarequest_attempt = 0;
+static uint8_t datarequest_attempt = 0;
 static uint32_t datarequest_expected_ack = 0;
 static uint32_t datarequest_contact_index = 0;
 static uint32_t datarequest_scan_wait_until = 0;
-static uint8_t  datarequest_pending_pub_key[PUB_KEY_SIZE] = {0};
+static uint8_t datarequest_pending_pub_key[PUB_KEY_SIZE] = { 0 };
 static bool datarequest_waiting_for_ack = false;
 static bool datarequest_waiting_for_app_response = false;
 
@@ -592,21 +592,36 @@ void MyMesh::onMessageRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t 
     return;
   }
 
-  if (text == NULL || strncmp(text, "received ", 9) != 0) {
+  if (text == NULL) {
     return;
   }
 
-  const char *space = strrchr(text, ' ');
-  if (space == NULL) return;
+  // Extract PUBKEY from JSON.
+  const char *key_tag = "\"PUBKEY\":\"";
+  const char *key_start = strstr(text, key_tag);
 
-  const char *received_key = space + 1;
-  if (strlen(received_key) != 6) return;
+  if (key_start == NULL) {
+    Serial.println("INVALID JSON - PUBKEY NOT FOUND");
+    return;
+  }
+
+  key_start += strlen(key_tag);
+
+  if (strlen(key_start) < 7 || key_start[6] != '"') {
+    Serial.println("INVALID JSON - PUBKEY FORMAT");
+    return;
+  }
+
+  char received_key[7];
+  memcpy(received_key, key_start, 6);
+  received_key[6] = '\0';
 
   char expected_key[7];
   mesh::Utils::toHex(expected_key, from.id.pub_key, 3);
 
   Serial.print("EXPECTED KEY: ");
   Serial.println(expected_key);
+
   Serial.print("RECEIVED KEY: ");
   Serial.println(received_key);
 
@@ -628,7 +643,7 @@ void MyMesh::onMessageRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t 
   Serial.println(text);
   Serial.println("DATAREQUEST RESPONSE VALID");
   Serial.println("--------------------------------");
-
+  Serial1.println(text); ///////////////////////////////////////////bug
   datarequest_contact_index++;
   int contact_count = getNumContacts();
 
@@ -1052,7 +1067,6 @@ void MyMesh::onSendTimeout() {
     datarequest_next_send_after = millis() + DATAREQUEST_NEXT_CONTACT_DELAY_MS;
   }
 }
-
 
 MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMeshTables &tables,
                DataStore &store, AbstractUITask *ui)
@@ -2601,7 +2615,7 @@ void MyMesh::loop() {
     checkSerialInterface();
   }
   sendDataRequestToNextContact(); //// Added by Asanka
-                            // is there are pending dirty contacts write needed?
+                                  // is there are pending dirty contacts write needed?
   if (dirty_contacts_expiry && millisHasNowPassed(dirty_contacts_expiry)) {
     saveContacts();
     dirty_contacts_expiry = 0;
