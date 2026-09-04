@@ -319,29 +319,29 @@ bool MyMesh::isAutoAddEnabled() const {
 }
 
 bool MyMesh::shouldAutoAddContactType(uint8_t contact_type) const {
-  if ((_prefs.manual_add_contacts & 1) == 0) {
-    return true;
-  }
+  // Data collector policy:
+  // - Repeater: automatically add from adverts
+  // - Sensor: must be manually added
+  // - Chat/Companion: do not automatically add
+  // - Room Server: do not automatically add
+  // - Unknown: do not automatically add
 
-  uint8_t type_bit = 0;
   switch (contact_type) {
-  case ADV_TYPE_CHAT:
-    type_bit = AUTO_ADD_CHAT;
-    break;
   case ADV_TYPE_REPEATER:
-    type_bit = AUTO_ADD_REPEATER;
-    break;
-  case ADV_TYPE_ROOM:
-    type_bit = AUTO_ADD_ROOM_SERVER;
-    break;
-  case ADV_TYPE_SENSOR:
-    type_bit = AUTO_ADD_SENSOR;
-    break;
-  default:
-    return false; // Unknown type, don't auto-add
-  }
+    return true;
 
-  return (_prefs.autoadd_config & type_bit) != 0;
+  case ADV_TYPE_SENSOR:
+    return false;
+
+  case ADV_TYPE_CHAT:
+    return false;
+
+  case ADV_TYPE_ROOM:
+    return false;
+
+  default:
+    return false;
+  }
 }
 
 bool MyMesh::shouldOverwriteWhenFull() const {
@@ -650,10 +650,10 @@ void MyMesh::onMessageRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t 
   if (contact_count > 0 && datarequest_contact_index >= (uint32_t)contact_count) {
     datarequest_contact_index = 0;
     datarequest_next_send_after = 0;
-    datarequest_scan_wait_until = millis() + 30000UL;
+    datarequest_scan_wait_until = millis() + 3600000UL;
 
     Serial.println("ALL CONTACTS COMPLETED");
-    Serial.println("WAITING 30 SECONDS");
+    Serial.println("WAITING 1 HOUR");
     Serial.println("--------------------------------");
   } else {
     datarequest_next_send_after = millis() + DATAREQUEST_NEXT_CONTACT_DELAY_MS;
@@ -1059,10 +1059,10 @@ void MyMesh::onSendTimeout() {
   if (contact_count > 0 && datarequest_contact_index >= (uint32_t)contact_count) {
     datarequest_contact_index = 0;
     datarequest_next_send_after = 0;
-    datarequest_scan_wait_until = millis() + 30000UL;
+    datarequest_scan_wait_until = millis() + 360000UL;
 
     Serial.println("ALL CONTACTS COMPLETED");
-    Serial.println("WAITING 30 SECONDS");
+    Serial.println("WAITING 1 HOUR");
   } else {
     datarequest_next_send_after = millis() + DATAREQUEST_NEXT_CONTACT_DELAY_MS;
   }
@@ -2495,9 +2495,9 @@ void MyMesh::sendDataRequestToNextContact() {
       if (contact_count > 0 && datarequest_contact_index >= (uint32_t)contact_count) {
         datarequest_contact_index = 0;
         datarequest_next_send_after = 0;
-        datarequest_scan_wait_until = millis() + 30000UL;
+        datarequest_scan_wait_until = millis() + 3600000UL;
         Serial.println("ALL CONTACTS COMPLETED");
-        Serial.println("WAITING 30 SECONDS");
+        Serial.println("WAITING 1 HOUR");
       } else {
         datarequest_next_send_after = millis() + DATAREQUEST_NEXT_CONTACT_DELAY_MS;
       }
@@ -2558,11 +2558,11 @@ void MyMesh::sendDataRequestToNextContact() {
 
     datarequest_contact_index = 0;
     datarequest_next_send_after = 0;
-    datarequest_scan_wait_until = millis() + 30000UL;
+    datarequest_scan_wait_until = millis() + 3600000UL;
 
     Serial.println("================================");
     Serial.println("ALL DATA CONTACTS COMPLETED");
-    Serial.println("WAITING 30 SECONDS");
+    Serial.println("WAITING 1 HOUR");
     Serial.println("================================");
 
     return;
