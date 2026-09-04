@@ -2523,17 +2523,56 @@ void MyMesh::sendDataRequestToNextContact() {
   int contact_count = getNumContacts();
   if (contact_count <= 0) return;
 
-  if (datarequest_contact_index >= (uint32_t)contact_count) datarequest_contact_index = 0;
+  // Find the next DATA contact.
+  // Repeaters remain in the contact table for routing,
+  // but must not receive automatic #DATA# requests.
+  while (datarequest_contact_index < (uint32_t)contact_count) {
 
+    ContactInfo check_contact;
+
+    if (!getContactByIdx(datarequest_contact_index, check_contact)) {
+      Serial.print("Cannot get contact index ");
+      Serial.println(datarequest_contact_index);
+      return;
+    }
+
+    if (check_contact.type != ADV_TYPE_NONE && check_contact.type != ADV_TYPE_REPEATER) {
+      break;
+    }
+
+    Serial.print("SKIPPING CONTACT INDEX = ");
+    Serial.print(datarequest_contact_index);
+
+    if (check_contact.type == ADV_TYPE_REPEATER) {
+      Serial.println(" - REPEATER");
+    } else {
+      Serial.println(" - NONE");
+    }
+
+    datarequest_contact_index++;
+  }
+
+  // All contacts have been checked.
+  // If there is no more DATA contact, complete the scan.
+  if (datarequest_contact_index >= (uint32_t)contact_count) {
+
+    datarequest_contact_index = 0;
+    datarequest_next_send_after = 0;
+    datarequest_scan_wait_until = millis() + 30000UL;
+
+    Serial.println("================================");
+    Serial.println("ALL DATA CONTACTS COMPLETED");
+    Serial.println("WAITING 30 SECONDS");
+    Serial.println("================================");
+
+    return;
+  }
+
+  // Get the actual DATA contact to poll.
   ContactInfo contact;
   if (!getContactByIdx(datarequest_contact_index, contact)) {
     Serial.print("Cannot get contact index ");
     Serial.println(datarequest_contact_index);
-    return;
-  }
-
-  if (contact.type == ADV_TYPE_NONE) {
-    datarequest_contact_index++;
     return;
   }
 
