@@ -208,6 +208,7 @@ private:
 
   void checkCLIRescueCmd();
   void checkSerialInterface();
+  void checkServerScheduleSerial();
   bool isValidClientRepeatFreq(uint32_t f) const;
   void sendDataRequestToNextContact(); /// Added by Asanka
 
@@ -236,7 +237,6 @@ private:
   uint8_t *sign_data;
   uint32_t sign_data_len;
   unsigned long dirty_contacts_expiry;
-
 
   TransportKey send_scope;
 

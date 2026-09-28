@@ -171,7 +171,7 @@ void setup() {
   the_mesh.startInterface(serial_interface);
   Serial.println("================================"); // Added by Asanka
   Serial.println("DATA COLLECTOR READY");             // Added by Asanka
-  Serial.println("AUTOMATIC HELLO SCANNER STARTING"); // Added by Asanka
+  Serial.println("WAITING FOR SERVER SCHEDULE");      // Added by Asanka
   Serial.println("================================"); // Added by Asanka
 #elif defined(RP2040_PLATFORM)
   LittleFS.begin();

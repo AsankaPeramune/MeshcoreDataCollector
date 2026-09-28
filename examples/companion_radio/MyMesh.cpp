@@ -21,6 +21,14 @@ static bool datarequest_waiting_for_app_response = false;
 static const uint32_t DATAREQUEST_NEXT_CONTACT_DELAY_MS = 1000UL;
 static const uint32_t DATAREQUEST_APP_RESPONSE_TIMEOUT_MS = 10000UL;
 
+// Server-schedule control state.  The Raspberry Pi starts each measurement
+// cycle by sending one newline-terminated JSON schedule over Serial1.
+static bool datarequest_scan_active = false;
+static char server_schedule_time[32] = { 0 };
+static char server_next_wake[32] = { 0 };
+static char server_schedule_rx_buffer[256] = { 0 };
+static size_t server_schedule_rx_pos = 0;
+
 // Attempts 0,1,2 use the current stored route. Attempt 3 is made after
 // resetting the stored route, causing sendMessage() to flood.
 
@@ -650,10 +658,11 @@ void MyMesh::onMessageRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t 
   if (contact_count > 0 && datarequest_contact_index >= (uint32_t)contact_count) {
     datarequest_contact_index = 0;
     datarequest_next_send_after = 0;
-    datarequest_scan_wait_until = millis() + 3600000UL;
+    datarequest_scan_wait_until = 0;
+    datarequest_scan_active = false;
 
     Serial.println("ALL CONTACTS COMPLETED");
-    Serial.println("WAITING 1 HOUR");
+    Serial.println("WAITING FOR NEXT SERVER SCHEDULE");
     Serial.println("--------------------------------");
   } else {
     datarequest_next_send_after = millis() + DATAREQUEST_NEXT_CONTACT_DELAY_MS;
@@ -1059,10 +1068,11 @@ void MyMesh::onSendTimeout() {
   if (contact_count > 0 && datarequest_contact_index >= (uint32_t)contact_count) {
     datarequest_contact_index = 0;
     datarequest_next_send_after = 0;
-    datarequest_scan_wait_until = millis() + 360000UL;
+    datarequest_scan_wait_until = 0;
+    datarequest_scan_active = false;
 
     Serial.println("ALL CONTACTS COMPLETED");
-    Serial.println("WAITING 1 HOUR");
+    Serial.println("WAITING FOR NEXT SERVER SCHEDULE");
   } else {
     datarequest_next_send_after = millis() + DATAREQUEST_NEXT_CONTACT_DELAY_MS;
   }
@@ -2468,7 +2478,92 @@ void MyMesh::checkSerialInterface() {
 ////////////////////////////////Added by
 /// Asanka//////////////////////////////////////////////////////////////////
 
+void MyMesh::checkServerScheduleSerial() {
+  while (Serial1.available() > 0) {
+    char c = (char)Serial1.read();
+
+    // The Pi sends one JSON object per line.
+    if (c == '\n' || c == '\r') {
+      if (server_schedule_rx_pos == 0) {
+        continue;
+      }
+
+      server_schedule_rx_buffer[server_schedule_rx_pos] = '\0';
+
+      const char *time_tag = "\"time\":\"";
+      const char *wake_tag = "\"next_wake\":\"";
+      const char *time_start = strstr(server_schedule_rx_buffer, time_tag);
+      const char *wake_start = strstr(server_schedule_rx_buffer, wake_tag);
+
+      if (time_start != NULL && wake_start != NULL) {
+        time_start += strlen(time_tag);
+        wake_start += strlen(wake_tag);
+
+        const char *time_end = strchr(time_start, '\"');
+        const char *wake_end = strchr(wake_start, '\"');
+
+        if (time_end != NULL && wake_end != NULL) {
+          size_t time_len = (size_t)(time_end - time_start);
+          size_t wake_len = (size_t)(wake_end - wake_start);
+
+          if (time_len < sizeof(server_schedule_time) && wake_len < sizeof(server_next_wake)) {
+            memcpy(server_schedule_time, time_start, time_len);
+            server_schedule_time[time_len] = '\0';
+
+            memcpy(server_next_wake, wake_start, wake_len);
+            server_next_wake[wake_len] = '\0';
+
+            // A new server schedule starts a new contact scan.
+            datarequest_contact_index = 0;
+            datarequest_next_send_after = 0;
+            datarequest_scan_wait_until = 0;
+            datarequest_attempt = 0;
+            datarequest_expected_ack = 0;
+            datarequest_waiting_for_ack = false;
+            datarequest_waiting_for_app_response = false;
+            datarequest_app_response_timeout = 0;
+            datarequest_scan_active = true;
+
+            Serial.println("================================");
+            Serial.println("SERVER SCHEDULE RECEIVED");
+            Serial.print("TIME      : ");
+            Serial.println(server_schedule_time);
+            Serial.print("NEXT WAKE : ");
+            Serial.println(server_next_wake);
+            Serial.println("STARTING DATA CONTACT SCAN");
+            Serial.println("================================");
+          } else {
+            Serial.println("SERVER SCHEDULE REJECTED - VALUE TOO LONG");
+          }
+        } else {
+          Serial.println("SERVER SCHEDULE REJECTED - INVALID JSON VALUES");
+        }
+      } else {
+        Serial.println("SERVER SCHEDULE IGNORED - TIME/NEXT_WAKE NOT FOUND");
+      }
+
+      server_schedule_rx_pos = 0;
+      server_schedule_rx_buffer[0] = '\0';
+      continue;
+    }
+
+    // Keep the receive buffer bounded. A malformed/oversized line is discarded.
+    if (server_schedule_rx_pos < sizeof(server_schedule_rx_buffer) - 1) {
+      server_schedule_rx_buffer[server_schedule_rx_pos++] = c;
+    } else {
+      server_schedule_rx_pos = 0;
+      server_schedule_rx_buffer[0] = '\0';
+      Serial.println("SERVER SCHEDULE REJECTED - MESSAGE TOO LONG");
+    }
+  }
+}
+
 void MyMesh::sendDataRequestToNextContact() {
+  // The Raspberry Pi schedule is the only trigger for a new scan.
+  if (!datarequest_scan_active) {
+    return;
+  }
+
   // Never start another DATAREQUEST while a transport ACK or application
   // response for the current contact is pending.
   if (datarequest_waiting_for_ack) {
@@ -2495,9 +2590,10 @@ void MyMesh::sendDataRequestToNextContact() {
       if (contact_count > 0 && datarequest_contact_index >= (uint32_t)contact_count) {
         datarequest_contact_index = 0;
         datarequest_next_send_after = 0;
-        datarequest_scan_wait_until = millis() + 3600000UL;
+        datarequest_scan_wait_until = 0;
+        datarequest_scan_active = false;
         Serial.println("ALL CONTACTS COMPLETED");
-        Serial.println("WAITING 1 HOUR");
+        Serial.println("WAITING FOR NEXT SERVER SCHEDULE");
       } else {
         datarequest_next_send_after = millis() + DATAREQUEST_NEXT_CONTACT_DELAY_MS;
       }
@@ -2525,7 +2621,7 @@ void MyMesh::sendDataRequestToNextContact() {
 
   // Find the next DATA contact.
   // Repeaters remain in the contact table for routing,
-  // but must not receive automatic #DATA# requests.
+  // but must not receive automatic DATA requests.
   while (datarequest_contact_index < (uint32_t)contact_count) {
 
     ContactInfo check_contact;
@@ -2558,11 +2654,12 @@ void MyMesh::sendDataRequestToNextContact() {
 
     datarequest_contact_index = 0;
     datarequest_next_send_after = 0;
-    datarequest_scan_wait_until = millis() + 3600000UL;
+    datarequest_scan_wait_until = 0;
+    datarequest_scan_active = false;
 
     Serial.println("================================");
     Serial.println("ALL DATA CONTACTS COMPLETED");
-    Serial.println("WAITING 1 HOUR");
+    Serial.println("WAITING FOR NEXT SERVER SCHEDULE");
     Serial.println("================================");
 
     return;
@@ -2598,7 +2695,23 @@ void MyMesh::sendDataRequestToNextContact() {
   uint32_t expected_ack = 0;
   uint32_t est_timeout = 0;
 
-  int result = sendMessage(contact, timestamp, datarequest_attempt, "#DATA#", expected_ack, est_timeout);
+  // Step 3: send the server schedule together with the DATA command. //////////////////////////////////////////////////////////////////////////////////////
+  // The request is sent individually to the current contact, so it keeps  ////////////////////////////////////////////////////////////////////////////////////
+  // the existing MeshCore ACK/retry/application-response mechanism.   /////////////////////////////////////////////////////////////////////////////////////////////////////
+  char data_request[256];
+  int request_len = snprintf(data_request, sizeof(data_request),
+                             "{\"time\":\"%s\",\"next_wake\":\"%s\",\"command\":\"DATA\"}",
+                             server_schedule_time, server_next_wake);
+
+  if (request_len < 0 || request_len >= (int)sizeof(data_request)) {
+    Serial.println("DATAREQUEST JSON BUILD FAILED");
+    return;
+  }
+
+  Serial.print("JSON REQUEST: ");
+  Serial.println(data_request);
+
+  int result = sendMessage(contact, timestamp, datarequest_attempt, data_request, expected_ack, est_timeout);
 
   Serial.print("sendMessage result = ");
   Serial.println(result);
@@ -2653,8 +2766,11 @@ void MyMesh::loop() {
   } else {
     checkSerialInterface();
   }
-  sendDataRequestToNextContact(); //// Added by Asanka
-                                  // is there are pending dirty contacts write needed?
+
+  // Check the Raspberry Pi scheduler UART. A valid schedule starts one scan.
+  checkServerScheduleSerial();
+  sendDataRequestToNextContact();
+
   if (dirty_contacts_expiry && millisHasNowPassed(dirty_contacts_expiry)) {
     saveContacts();
     dirty_contacts_expiry = 0;
